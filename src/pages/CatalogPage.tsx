@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { DemoNotice } from '../components/DemoNotice';
+import { ErrorState } from '../components/ErrorState';
+import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ProductCard } from '../components/ProductCard';
 import { SearchFilterBar } from '../components/SearchFilterBar';
 import { useDemoApp } from '../context/DemoAppContext';
@@ -8,7 +10,7 @@ import { ListingType } from '../types';
 
 export function CatalogPage() {
   const { slug } = useParams<{ slug?: string }>();
-  const { products, businesses } = useDemoApp();
+  const { products, businesses, loading, error, reloadDirectory } = useDemoApp();
 
   const [query, setQuery] = useState('');
   const [selectedKecamatan, setSelectedKecamatan] = useState('all');
@@ -99,7 +101,7 @@ export function CatalogPage() {
         </div>
 
         <span className="text-xs text-slate-500 tabular-nums">
-          Menampilkan <strong>{filtered.length}</strong> item (Data DEMO)
+          Menampilkan <strong>{filtered.length}</strong> item
         </span>
       </div>
 
@@ -114,7 +116,11 @@ export function CatalogPage() {
         />
       )}
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <LoadingSkeleton count={3} />
+      ) : error ? (
+        <ErrorState message={error} onRetry={() => void reloadDirectory(false)} />
+      ) : filtered.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-3">
           <p className="text-sm text-slate-600">Belum ada produk atau jasa yang sesuai filter.</p>
           <button

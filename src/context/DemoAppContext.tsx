@@ -2,10 +2,26 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import {
   GARUT_CATEGORIES,
   GARUT_KECAMATAN,
-  SERVICE_STUDIO_IMAGE,
   PROFESSIONAL_PORTRAIT_IMAGE,
+  SERVICE_STUDIO_IMAGE,
 } from '../data/demoData';
-import { fetchInitialDirectoryData, getPlatformStatus, type PlatformStatus } from '../services/platformService';
+import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase';
+import {
+  fetchInitialDirectoryData,
+  getPlatformStatus,
+  type PlatformStatus,
+} from '../services/platformService';
+import {
+  getCurrentSupabaseSession,
+  insertBusinessWithCompanyProfile,
+  insertProductToSupabase,
+  insertProfessionalProfileToSupabase,
+  signInWithSupabase,
+  signOutFromSupabase,
+  signUpWithSupabase,
+  updateBusinessStatusInSupabase,
+  updateProfessionalStatusInSupabase,
+} from '../services/supabaseService';
 import {
   ApprovalStatus,
   ListingType,
@@ -56,14 +72,23 @@ interface DemoAppContextValue {
   kecamatanList: Kecamatan[];
   session: UserSession | null;
   platformStatus: PlatformStatus;
+  dataSource: 'demo' | 'supabase';
+  diagnosticNotice: string | null;
   loading: boolean;
   error: string | null;
   reloadDirectory: (simulateError?: boolean) => Promise<void>;
   loginDemo: (email: string, role: 'user' | 'admin', name?: string, kecamatanSlug?: string) => void;
-  logoutDemo: () => void;
-  addBusinessDemo: (input: NewBusinessInput) => Business;
+  loginSupabase: (email: string, password: string) => Promise<UserSession>;
+  registerSupabase: (params: {
+    email: string;
+    password: string;
+    fullName: string;
+    kecamatanSlug: string;
+  }) => Promise<{ session: UserSession | null; needsEmailConfirmation: boolean }>;
+  logoutDemo: () => Promise<void>;
+  addBusinessDemo: (input: NewBusinessInput) => Promise<Business>;
   updateBusinessMediaDemo: (businessId: string, logoUrl?: string, coverUrl?: string) => void;
-  addProductDemo: (input: NewProductInput) => ProductItem;
+  addProductDemo: (input: NewProductInput) => Promise<ProductItem>;
   updateProfessionalCvDemo: (
     profileId: string,
     cvPdfName: string,
@@ -84,9 +109,9 @@ interface DemoAppContextValue {
     cvPdfName?: string | null;
     cvPdfSizeBytes?: number | null;
     cvPdfObjectUrl?: string | null;
-  }) => ProfessionalProfile;
-  setBusinessApprovalStatus: (businessId: string, status: ApprovalStatus) => void;
-  setProfessionalApprovalStatus: (profileId: string, status: ApprovalStatus) => void;
+  }) => Promise<ProfessionalProfile>;
+  setBusinessApprovalStatus: (businessId: string, status: ApprovalStatus) => Promise<void>;
+  setProfessionalApprovalStatus: (profileId: string, status: ApprovalStatus) => Promise<void>;
 }
 
 const DemoAppContext = createContext<DemoAppContextValue | undefined>(undefined);
@@ -96,6 +121,8 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [professionals, setProfessionals] = useState<ProfessionalProfile[]>([]);
   const [session, setSession] = useState<UserSession | null>(null);
+  const [dataSource, setDataSource] = useState<'demo' | 'supabase'>('demo');
+  const [diagnosticNotice, setDiagnosticNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const platformStatus = getPlatformStatus();
@@ -105,13 +132,15 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       if (simulateError) {
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((r) => setTimeout(r, 200));
         throw new Error('Simulasi gangguan jaringan saat memuat direktori Garut.');
       }
       const data = await fetchInitialDirectoryData();
       setBusinesses(data.businesses);
       setProducts(data.products);
       setProfessionals(data.professionals);
+      setDataSource(data.dataSource);
+      setDiagnosticNotice(data.diagnosticNotice);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat data direktori.');
     } finally {
@@ -122,6 +151,31 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void reloadDirectory(false);
   }, [reloadDirectory]);
+
+  useEffect(() => {
+    const client = getSupabaseClient();
+    if (!client) return;
+
+    void getCurrentSupabaseSession().then((activeSession) => {
+      if (activeSession) {
+        setSession(activeSession);
+      }
+    });
+
+    const { data: listener } = client.auth.onAuthStateChange((_event, authSession) => {
+      if (!authSession) {
+        setSession((prev) => (prev && !prev.isDemoSession ? null : prev));
+        return;
+      }
+      void getCurrentSupabaseSession().then((activeSession) => {
+        if (activeSession) setSession(activeSession);
+      });
+    });
+
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   const loginDemo = useCallback(
     (email: string, role: 'user' | 'admin', name?: string, kecamatanSlug = 'garut-kota') => {
@@ -139,12 +193,74 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  const logoutDemo = useCallback(() => {
-    setSession(null);
+  const loginSupabase = useCallback(async (email: string, password: string) => {
+    const userSession = await signInWithSupabase(email, password);
+    setSession(userSession);
+    return userSession;
   }, []);
 
+  const registerSupabase = useCallback(
+    async (params: {
+      email: string;
+      password: string;
+      fullName: string;
+      kecamatanSlug: string;
+    }) => {
+      const result = await signUpWithSupabase(params);
+      if (result.session) {
+        setSession(result.session);
+      }
+      return result;
+    },
+    []
+  );
+
+  const logoutDemo = useCallback(async () => {
+    if (isSupabaseConfigured && session && !session.isDemoSession) {
+      await signOutFromSupabase();
+    }
+    setSession(null);
+  }, [session]);
+
   const addBusinessDemo = useCallback(
-    (input: NewBusinessInput): Business => {
+    async (input: NewBusinessInput): Promise<Business> => {
+      const missionLines = input.missionText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      if (dataSource === 'supabase' && isSupabaseConfigured) {
+        if (!session || session.isDemoSession) {
+          throw new Error(
+            'Silakan masuk terlebih dahulu melalui Supabase Auth di halaman Masuk agar pendaftaran usaha tersimpan ke akun Anda.'
+          );
+        }
+        const createdLive = await insertBusinessWithCompanyProfile({
+          name: input.name,
+          tagline: input.tagline,
+          categorySlug: input.categorySlug,
+          kecamatanSlug: input.kecamatanSlug,
+          address: input.address,
+          whatsapp: input.whatsapp,
+          email: input.email,
+          description: input.description,
+          operatingHours: input.operatingHours || 'Senin - Sabtu · 08.00 - 17.00 WIB',
+          logoUrl: input.logoUrl || SERVICE_STUDIO_IMAGE,
+          coverUrl: input.coverUrl || input.logoUrl || SERVICE_STUDIO_IMAGE,
+          ownerId: session.id,
+          vision: input.vision || 'Menyediakan produk dan jasa lokal Garut yang terpercaya.',
+          mission:
+            missionLines.length > 0
+              ? missionLines
+              : ['Menjaga kualitas produk dan pelayanan lokal Garut.'],
+          foundedYear: input.foundedYear || 2024,
+          teamSize: input.teamSize || '3 Orang',
+          legalStatus: input.legalStatus || 'UMKM Terdaftar',
+        });
+        setBusinesses((prev) => [createdLive, ...prev]);
+        return createdLive;
+      }
+
       const id = `demo-biz-${Date.now()}`;
       const baseSlug = slugifyText(input.name) || 'usaha-garut';
       const newBiz: Business = {
@@ -168,10 +284,7 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString().slice(0, 10),
         companyProfile: {
           vision: input.vision || 'Menyediakan produk dan jasa lokal Garut yang terpercaya.',
-          mission: input.missionText
-            .split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean),
+          mission: missionLines,
           foundedYear: input.foundedYear || 2024,
           teamSize: input.teamSize || '3 Orang (DEMO)',
           legalStatus: input.legalStatus || 'Pendaftaran Mandiri (DEMO)',
@@ -180,7 +293,7 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
             {
               year: String(input.foundedYear || 2026),
               title: 'Pendaftaran Direktori DEMO',
-              detail: 'Menunggu persetujuan admin pada sesi Tahap 1.',
+              detail: 'Menunggu persetujuan admin pada sesi mode DEMO.',
             },
           ],
         },
@@ -188,7 +301,7 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
       setBusinesses((prev) => [newBiz, ...prev]);
       return newBiz;
     },
-    [session]
+    [dataSource, session]
   );
 
   const updateBusinessMediaDemo = useCallback(
@@ -209,8 +322,25 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addProductDemo = useCallback(
-    (input: NewProductInput): ProductItem => {
+    async (input: NewProductInput): Promise<ProductItem> => {
       const parentBiz = businesses.find((b) => b.id === input.businessId);
+
+      if (dataSource === 'supabase' && isSupabaseConfigured) {
+        const createdLive = await insertProductToSupabase({
+          businessId: input.businessId,
+          type: input.type,
+          name: input.name,
+          price: input.price,
+          unit: input.unit || 'pcs',
+          description: input.description,
+          imageUrl: input.imageUrl,
+          thumbnailUrl: input.thumbnailUrl,
+          parentBusiness: parentBiz,
+        });
+        setProducts((prev) => [createdLive, ...prev]);
+        return createdLive;
+      }
+
       const newItem: ProductItem = {
         id: `demo-prod-${Date.now()}`,
         businessId: input.businessId,
@@ -230,7 +360,7 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
       setProducts((prev) => [newItem, ...prev]);
       return newItem;
     },
-    [businesses]
+    [businesses, dataSource]
   );
 
   const updateProfessionalCvDemo = useCallback(
@@ -247,7 +377,7 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const upsertMyProfessionalDemo = useCallback(
-    (payload: {
+    async (payload: {
       fullName: string;
       headline: string;
       kecamatanSlug: string;
@@ -261,7 +391,33 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
       cvPdfName?: string | null;
       cvPdfSizeBytes?: number | null;
       cvPdfObjectUrl?: string | null;
-    }): ProfessionalProfile => {
+    }): Promise<ProfessionalProfile> => {
+      const skills = payload.skillsText
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (dataSource === 'supabase' && isSupabaseConfigured) {
+        const createdLive = await insertProfessionalProfileToSupabase({
+          userId: session && !session.isDemoSession ? session.id : undefined,
+          fullName: payload.fullName,
+          headline: payload.headline,
+          kecamatanSlug: payload.kecamatanSlug,
+          skills,
+          experienceYears: payload.experienceYears,
+          education: payload.education,
+          summary: payload.summary,
+          whatsapp: payload.whatsapp,
+          email: payload.email,
+          avatarUrl: payload.avatarUrl || PROFESSIONAL_PORTRAIT_IMAGE,
+          cvPdfName: payload.cvPdfName ?? null,
+          cvPdfSizeBytes: payload.cvPdfSizeBytes ?? null,
+          cvPdfUrl: payload.cvPdfObjectUrl ?? null,
+        });
+        setProfessionals((prev) => [createdLive, ...prev]);
+        return createdLive;
+      }
+
       const newPro: ProfessionalProfile = {
         id: `demo-pro-${Date.now()}`,
         slug: `${slugifyText(payload.fullName)}-${Math.floor(Math.random() * 900 + 100)}`,
@@ -270,10 +426,7 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
           : `${payload.fullName} (Contoh DEMO)`,
         headline: payload.headline,
         kecamatanSlug: payload.kecamatanSlug,
-        skills: payload.skillsText
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
+        skills,
         experienceYears: payload.experienceYears,
         education: payload.education,
         summary: payload.summary,
@@ -297,20 +450,32 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
       setProfessionals((prev) => [newPro, ...prev]);
       return newPro;
     },
-    []
+    [dataSource, session]
   );
 
-  const setBusinessApprovalStatus = useCallback((businessId: string, status: ApprovalStatus) => {
-    setBusinesses((prev) =>
-      prev.map((biz) => (biz.id === businessId ? { ...biz, status } : biz))
-    );
-  }, []);
+  const setBusinessApprovalStatus = useCallback(
+    async (businessId: string, status: ApprovalStatus) => {
+      if (dataSource === 'supabase' && isSupabaseConfigured) {
+        await updateBusinessStatusInSupabase(businessId, status);
+      }
+      setBusinesses((prev) =>
+        prev.map((biz) => (biz.id === businessId ? { ...biz, status } : biz))
+      );
+    },
+    [dataSource]
+  );
 
-  const setProfessionalApprovalStatus = useCallback((profileId: string, status: ApprovalStatus) => {
-    setProfessionals((prev) =>
-      prev.map((pro) => (pro.id === profileId ? { ...pro, status } : pro))
-    );
-  }, []);
+  const setProfessionalApprovalStatus = useCallback(
+    async (profileId: string, status: ApprovalStatus) => {
+      if (dataSource === 'supabase' && isSupabaseConfigured) {
+        await updateProfessionalStatusInSupabase(profileId, status);
+      }
+      setProfessionals((prev) =>
+        prev.map((pro) => (pro.id === profileId ? { ...pro, status } : pro))
+      );
+    },
+    [dataSource]
+  );
 
   return (
     <DemoAppContext.Provider
@@ -322,10 +487,14 @@ export function DemoAppProvider({ children }: { children: React.ReactNode }) {
         kecamatanList: GARUT_KECAMATAN,
         session,
         platformStatus,
+        dataSource,
+        diagnosticNotice,
         loading,
         error,
         reloadDirectory,
         loginDemo,
+        loginSupabase,
+        registerSupabase,
         logoutDemo,
         addBusinessDemo,
         updateBusinessMediaDemo,

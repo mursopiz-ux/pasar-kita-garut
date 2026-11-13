@@ -22,6 +22,7 @@ export function UserDashboardPage() {
     categories,
     kecamatanList,
     session,
+    dataSource,
     addBusinessDemo,
     updateBusinessMediaDemo,
     addProductDemo,
@@ -30,6 +31,7 @@ export function UserDashboardPage() {
   } = useDemoApp();
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('register-business');
+  const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -46,7 +48,7 @@ export function UserDashboardPage() {
   const [bizMission, setBizMission] = useState('');
   const [bizYear, setBizYear] = useState(2024);
   const [bizTeamSize, setBizTeamSize] = useState('3 - 5 Orang');
-  const [bizLegal, setBizLegal] = useState('NIB Perorangan (DEMO)');
+  const [bizLegal, setBizLegal] = useState('NIB Perorangan');
   const [logoUpload, setLogoUpload] = useState<CompressedImageResult | null>(null);
   const [coverUpload, setCoverUpload] = useState<CompressedImageResult | null>(null);
   const [compressing, setCompressing] = useState(false);
@@ -112,11 +114,11 @@ export function UserDashboardPage() {
     setPdfMeta({ name: file.name, size: file.size, objectUrl });
     if (attachToExistingId) {
       updateProfessionalCvDemo(attachToExistingId, file.name, file.size, objectUrl);
-      setFeedback(`CV PDF "${file.name}" (${formatBytes(file.size)}) berhasil dilampirkan (Sesi DEMO).`);
+      setFeedback(`CV PDF "${file.name}" (${formatBytes(file.size)}) berhasil dilampirkan.`);
     }
   };
 
-  const handleCreateBusiness = (e: React.FormEvent) => {
+  const handleCreateBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploadError(null);
     setFeedback(null);
@@ -126,38 +128,46 @@ export function UserDashboardPage() {
       return;
     }
 
-    const created = addBusinessDemo({
-      name: bizName.trim(),
-      tagline: bizTagline.trim(),
-      categorySlug: bizCategory,
-      kecamatanSlug: bizKecamatan,
-      address: bizAddress.trim() || `Kec. ${bizKecamatan}, Kab. Garut`,
-      whatsapp: bizWhatsapp.trim(),
-      email: bizEmail.trim() || 'usaha@pasarkitagarut.demo',
-      description: bizDesc.trim() || bizTagline.trim(),
-      operatingHours: 'Senin - Sabtu · 08.00 - 17.00 WIB',
-      logoUrl: logoUpload?.thumbnailDataUrl || SERVICE_STUDIO_IMAGE,
-      coverUrl: coverUpload?.dataUrl || logoUpload?.dataUrl || SERVICE_STUDIO_IMAGE,
-      vision: bizVision.trim() || 'Menyediakan layanan dan produk unggulan bagi warga Garut.',
-      missionText: bizMission.trim() || 'Menjaga kualitas produk lokal.\nMelayani pelanggan dengan ramah.',
-      foundedYear: bizYear,
-      teamSize: bizTeamSize,
-      legalStatus: bizLegal,
-    });
+    setSubmitting(true);
+    try {
+      const created = await addBusinessDemo({
+        name: bizName.trim(),
+        tagline: bizTagline.trim(),
+        categorySlug: bizCategory,
+        kecamatanSlug: bizKecamatan,
+        address: bizAddress.trim() || `Kec. ${bizKecamatan}, Kab. Garut`,
+        whatsapp: bizWhatsapp.trim(),
+        email: bizEmail.trim() || 'usaha@pasarkitagarut.demo',
+        description: bizDesc.trim() || bizTagline.trim(),
+        operatingHours: 'Senin - Sabtu · 08.00 - 17.00 WIB',
+        logoUrl: logoUpload?.thumbnailDataUrl || SERVICE_STUDIO_IMAGE,
+        coverUrl: coverUpload?.dataUrl || logoUpload?.dataUrl || SERVICE_STUDIO_IMAGE,
+        vision: bizVision.trim() || 'Menyediakan layanan dan produk unggulan bagi warga Garut.',
+        missionText:
+          bizMission.trim() || 'Menjaga kualitas produk lokal.\nMelayani pelanggan dengan ramah.',
+        foundedYear: bizYear,
+        teamSize: bizTeamSize,
+        legalStatus: bizLegal,
+      });
 
-    setSelectedBizId(created.id);
-    setBizName('');
-    setBizTagline('');
-    setBizAddress('');
-    setBizDesc('');
-    setLogoUpload(null);
-    setCoverUpload(null);
-    setFeedback(
-      `Usaha "${created.name}" berhasil didaftarkan gratis dalam mode DEMO dan menunggu persetujuan Admin.`
-    );
+      setSelectedBizId(created.id);
+      setBizName('');
+      setBizTagline('');
+      setBizAddress('');
+      setBizDesc('');
+      setLogoUpload(null);
+      setCoverUpload(null);
+      setFeedback(
+        `Usaha "${created.name}" berhasil disimpan dan berstatus Menunggu Persetujuan Admin.`
+      );
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Gagal mendaftarkan usaha.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleAddProduct = (e: React.FormEvent) => {
+  const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploadError(null);
     setFeedback(null);
@@ -174,24 +184,31 @@ export function UserDashboardPage() {
       return;
     }
 
-    const added = addProductDemo({
-      businessId: targetBizId,
-      type: prodType,
-      name: prodName.trim(),
-      price: parsedPrice,
-      unit: prodUnit.trim() || 'pcs',
-      description: prodDesc.trim() || 'Item katalog contoh (DEMO).',
-      imageUrl: prodImage?.dataUrl || CULINARY_CRAFT_IMAGE,
-      thumbnailUrl: prodImage?.thumbnailDataUrl || CULINARY_CRAFT_IMAGE,
-    });
+    setSubmitting(true);
+    try {
+      const added = await addProductDemo({
+        businessId: targetBizId,
+        type: prodType,
+        name: prodName.trim(),
+        price: parsedPrice,
+        unit: prodUnit.trim() || 'pcs',
+        description: prodDesc.trim() || 'Item katalog usaha.',
+        imageUrl: prodImage?.dataUrl || CULINARY_CRAFT_IMAGE,
+        thumbnailUrl: prodImage?.thumbnailDataUrl || CULINARY_CRAFT_IMAGE,
+      });
 
-    setProdName('');
-    setProdDesc('');
-    setProdImage(null);
-    setFeedback(`"${added.name}" (${formatRupiah(added.price)}) ditambahkan ke katalog DEMO.`);
+      setProdName('');
+      setProdDesc('');
+      setProdImage(null);
+      setFeedback(`"${added.name}" (${formatRupiah(added.price)}) berhasil disimpan ke katalog.`);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Gagal menambahkan katalog.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleSaveProfessional = (e: React.FormEvent) => {
+  const handleSaveProfessional = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploadError(null);
     setFeedback(null);
@@ -201,25 +218,35 @@ export function UserDashboardPage() {
       return;
     }
 
-    const created = upsertMyProfessionalDemo({
-      fullName: proName.trim(),
-      headline: proHeadline.trim(),
-      kecamatanSlug: proKecamatan,
-      skillsText: proSkills,
-      experienceYears: Number(proExpYears) || 1,
-      education: proEdu.trim() || 'Pendidikan Terakhir (DEMO)',
-      summary: proSummary.trim() || `Profesional di bidang ${proHeadline.trim()} wilayah Garut.`,
-      whatsapp: proWhatsapp.trim(),
-      email: proEmail.trim() || 'profesional@pasarkitagarut.demo',
-      avatarUrl: proAvatar?.thumbnailDataUrl || PROFESSIONAL_PORTRAIT_IMAGE,
-      cvPdfName: pdfMeta?.name ?? null,
-      cvPdfSizeBytes: pdfMeta?.size ?? null,
-      cvPdfObjectUrl: pdfMeta?.objectUrl ?? null,
-    });
+    setSubmitting(true);
+    try {
+      const created = await upsertMyProfessionalDemo({
+        fullName: proName.trim(),
+        headline: proHeadline.trim(),
+        kecamatanSlug: proKecamatan,
+        skillsText: proSkills,
+        experienceYears: Number(proExpYears) || 1,
+        education: proEdu.trim() || 'Pendidikan Terakhir',
+        summary:
+          proSummary.trim() || `Profesional di bidang ${proHeadline.trim()} wilayah Garut.`,
+        whatsapp: proWhatsapp.trim(),
+        email: proEmail.trim() || 'profesional@pasarkitagarut.demo',
+        avatarUrl: proAvatar?.thumbnailDataUrl || PROFESSIONAL_PORTRAIT_IMAGE,
+        cvPdfName: pdfMeta?.name ?? null,
+        cvPdfSizeBytes: pdfMeta?.size ?? null,
+        cvPdfObjectUrl: pdfMeta?.objectUrl ?? null,
+      });
 
-    setFeedback(
-      `Profil profesional "${created.fullName}" disimpan di sesi DEMO dan siap ditinjau di Dashboard Admin.`
-    );
+      setFeedback(
+        `Profil profesional "${created.fullName}" berhasil disimpan dan siap ditinjau di Dashboard Admin.`
+      );
+    } catch (err) {
+      setUploadError(
+        err instanceof Error ? err.message : 'Gagal menyimpan profil profesional.'
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const selectedBiz = businesses.find((b) => b.id === selectedBizId) ?? businesses[0];
@@ -319,12 +346,12 @@ export function UserDashboardPage() {
       {activeTab === 'register-business' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <form
-            onSubmit={handleCreateBusiness}
+            onSubmit={(e) => void handleCreateBusiness(e)}
             className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl p-5 sm:p-7 space-y-5"
           >
             <div>
               <h2 className="font-display text-lg font-bold text-slate-900">
-                Pendaftaran Usaha Gratis (DEMO)
+                Pendaftaran Usaha Gratis {dataSource === 'demo' ? '(DEMO)' : ''}
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 Setelah dikirim, usaha berstatus Menunggu Persetujuan dan dapat disetujui di Dashboard Admin.
@@ -600,10 +627,17 @@ export function UserDashboardPage() {
 
             <button
               type="submit"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg min-h-[44px]"
+              disabled={submitting}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 rounded-lg min-h-[44px]"
             >
               <Plus className="w-4 h-4" aria-hidden="true" />
-              <span>Daftarkan Usaha Gratis (DEMO)</span>
+              <span>
+                {submitting
+                  ? 'Menyimpan...'
+                  : dataSource === 'supabase'
+                    ? 'Daftarkan Usaha Gratis'
+                    : 'Daftarkan Usaha Gratis (DEMO)'}
+              </span>
             </button>
           </form>
 
@@ -646,11 +680,11 @@ export function UserDashboardPage() {
       {activeTab === 'catalog-media' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <form
-            onSubmit={handleAddProduct}
+            onSubmit={(e) => void handleAddProduct(e)}
             className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl p-5 sm:p-7 space-y-5"
           >
             <h2 className="font-display text-lg font-bold text-slate-900">
-              Tambah Produk atau Jasa ke Katalog (DEMO)
+              Tambah Produk atau Jasa ke Katalog {dataSource === 'demo' ? '(DEMO)' : ''}
             </h2>
 
             <div>
@@ -779,10 +813,17 @@ export function UserDashboardPage() {
 
             <button
               type="submit"
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg min-h-[44px]"
+              disabled={submitting}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 rounded-lg min-h-[44px]"
             >
               <ImagePlus className="w-4 h-4" aria-hidden="true" />
-              <span>Simpan ke Katalog (DEMO)</span>
+              <span>
+                {submitting
+                  ? 'Menyimpan...'
+                  : dataSource === 'supabase'
+                    ? 'Simpan ke Katalog'
+                    : 'Simpan ke Katalog (DEMO)'}
+              </span>
             </button>
           </form>
 
@@ -838,11 +879,11 @@ export function UserDashboardPage() {
       {activeTab === 'professional-cv' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <form
-            onSubmit={handleSaveProfessional}
+            onSubmit={(e) => void handleSaveProfessional(e)}
             className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl p-5 sm:p-7 space-y-5"
           >
             <h2 className="font-display text-lg font-bold text-slate-900">
-              Buat Profil Profesional &amp; Unggah CV PDF (DEMO)
+              Buat Profil Profesional &amp; Unggah CV PDF {dataSource === 'demo' ? '(DEMO)' : ''}
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1020,10 +1061,17 @@ export function UserDashboardPage() {
 
             <button
               type="submit"
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-orange-600 hover:bg-orange-700 rounded-lg min-h-[44px]"
+              disabled={submitting}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 rounded-lg min-h-[44px]"
             >
               <Upload className="w-4 h-4" aria-hidden="true" />
-              <span>Simpan Profil &amp; CV (DEMO)</span>
+              <span>
+                {submitting
+                  ? 'Menyimpan...'
+                  : dataSource === 'supabase'
+                    ? 'Simpan Profil & CV'
+                    : 'Simpan Profil & CV (DEMO)'}
+              </span>
             </button>
           </form>
 

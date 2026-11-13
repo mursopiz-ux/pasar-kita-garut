@@ -3,7 +3,7 @@ import { APP_CONFIG } from '../config/appConfig';
 import { useDemoApp } from '../context/DemoAppContext';
 
 export function Footer() {
-  const { platformStatus } = useDemoApp();
+  const { platformStatus, dataSource } = useDemoApp();
 
   return (
     <footer className="bg-white border-t border-slate-200 mt-16 pb-20 md:pb-8">
@@ -17,7 +17,12 @@ export function Footer() {
               Platform direktori usaha lokal, company profile, katalog produk dan jasa, serta profil profesional untuk masyarakat {APP_CONFIG.regionName}.
             </p>
             <p className="text-xs text-slate-500">
-              Status: {platformStatus.supabaseConfigured ? 'Terhubung ke Supabase' : 'Tahap 1 · Mode Data DEMO (Supabase belum terhubung)'}
+              Status:{' '}
+              {dataSource === 'supabase'
+                ? 'Terhubung ke Supabase (Data Langsung)'
+                : platformStatus.supabaseConfigured
+                  ? 'Client Supabase siap · Mode Data DEMO aktif'
+                  : 'Mode Data DEMO (Konfigurasi Supabase belum tersedia)'}
             </p>
           </div>
 

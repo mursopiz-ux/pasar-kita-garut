@@ -1,4 +1,3 @@
-import { getSupabaseClient, isSupabaseConfigured, SUPABASE_STAGE2_SCHEMA } from '../config/supabase';
 import {
   DEMO_BUSINESSES,
   DEMO_PRODUCTS,
@@ -6,33 +5,47 @@ import {
   GARUT_CATEGORIES,
   GARUT_KECAMATAN,
 } from '../data/demoData';
+import {
+  isSupabaseConfigured,
+  supabaseConfigStatus,
+  testSupabaseConnection,
+  type SupabaseConnectionTestResult,
+} from '../lib/supabase';
 import type { Business, Category, Kecamatan, ProductItem, ProfessionalProfile } from '../types';
+import { fetchAllFromSupabase } from './supabaseService';
 
-/**
- * Lapisan layanan API.
- * Tahap 1: Mengembalikan data DEMO dan status kesiapan integrasi Supabase.
- * Tahap 2: Saat Supabase sudah dikonfigurasi di .env, query akan diarahkan ke tabel Supabase.
- */
 export interface PlatformStatus {
-  stage: 'TAHAP_1_DEMO' | 'TAHAP_2_SUPABASE';
+  stage: 'TAHAP_1_DEMO' | 'TAHAP_2_SIAP_MIGRASI';
   supabaseConfigured: boolean;
+  validationError: string | null;
+  missingVars: string[];
   message: string;
 }
 
 export function getPlatformStatus(): PlatformStatus {
   if (isSupabaseConfigured) {
     return {
-      stage: 'TAHAP_2_SUPABASE',
+      stage: 'TAHAP_2_SIAP_MIGRASI',
       supabaseConfigured: true,
-      message: 'Kredensial Supabase terdeteksi. Siap melakukan sinkronisasi tabel.',
+      validationError: null,
+      missingVars: [],
+      message:
+        'Konfigurasi client Supabase (URL & Anon Key) tersedia. Data DEMO dipertahankan sampai seluruh tabel berhasil diuji.',
     };
   }
   return {
     stage: 'TAHAP_1_DEMO',
     supabaseConfigured: false,
+    validationError: supabaseConfigStatus.validationError,
+    missingVars: supabaseConfigStatus.missingVars,
     message:
-      'Tahap 1 aktif: menggunakan data DEMO sementara di memori browser. Supabase belum dihubungkan.',
+      supabaseConfigStatus.validationError ??
+      'Mode Data DEMO aktif. Konfigurasi Supabase belum tersedia.',
   };
+}
+
+export async function runSupabaseDiagnostic(): Promise<SupabaseConnectionTestResult> {
+  return testSupabaseConnection();
 }
 
 export async function fetchInitialDirectoryData(): Promise<{
@@ -41,25 +54,37 @@ export async function fetchInitialDirectoryData(): Promise<{
   professionals: ProfessionalProfile[];
   categories: Category[];
   kecamatanList: Kecamatan[];
+  dataSource: 'demo' | 'supabase';
+  diagnosticNotice: string | null;
 }> {
-  // Simulasi latensi ringan agar loading state dapat diuji secara nyata
-  await new Promise((resolve) => setTimeout(resolve, 180));
-
-  const client = getSupabaseClient();
-  if (client) {
-    // Disiapkan untuk Tahap 2: apabila tabel belum dibuat di Supabase, tetap aman fallback ke demo
+  if (isSupabaseConfigured) {
     try {
-      const { data } = await client
-        .from(SUPABASE_STAGE2_SCHEMA.tables.businesses)
-        .select('*')
-        .limit(1);
-      if (data && data.length > 0) {
-        // Mapping penuh akan diaktifkan pada Tahap 2 setelah skema SQL Supabase diterapkan
-      }
-    } catch {
-      // Tetap gunakan data DEMO jika skema Tahap 2 belum dimigrasi
+      const liveData = await fetchAllFromSupabase();
+      return {
+        businesses: liveData.businesses,
+        products: liveData.products,
+        professionals: liveData.professionals,
+        categories: GARUT_CATEGORIES,
+        kecamatanList: GARUT_KECAMATAN.map((k) => k),
+        dataSource: 'supabase',
+        diagnosticNotice: null,
+      };
+    } catch (err) {
+      // Sesuai aturan: jangan menghapus data demo sebelum koneksi & tabel database berhasil diuji
+      const reason = err instanceof Error ? err.message : 'Query Supabase gagal.';
+      return {
+        businesses: DEMO_BUSINESSES,
+        products: DEMO_PRODUCTS,
+        professionals: DEMO_PROFESSIONALS,
+        categories: GARUT_CATEGORIES,
+        kecamatanList: GARUT_KECAMATAN.map((k) => k),
+        dataSource: 'demo',
+        diagnosticNotice: `Fallback ke data DEMO karena database belum siap diakses: ${reason}`,
+      };
     }
   }
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
 
   return {
     businesses: DEMO_BUSINESSES,
@@ -67,5 +92,7 @@ export async function fetchInitialDirectoryData(): Promise<{
     professionals: DEMO_PROFESSIONALS,
     categories: GARUT_CATEGORIES,
     kecamatanList: GARUT_KECAMATAN.map((k) => k),
+    dataSource: 'demo',
+    diagnosticNotice: supabaseConfigStatus.validationError,
   };
 }

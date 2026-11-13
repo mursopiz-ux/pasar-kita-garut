@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ApprovalStatusLabel } from '../components/ApprovalStatusLabel';
 import { DemoNotice } from '../components/DemoNotice';
+import { ErrorState } from '../components/ErrorState';
+import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { OptimizedImage } from '../components/OptimizedImage';
 import { ProfessionalCard } from '../components/ProfessionalCard';
 import { SearchFilterBar } from '../components/SearchFilterBar';
@@ -13,7 +15,7 @@ import { formatBytes } from '../utils/formatters';
 
 export function ProfessionalsPage() {
   const { slug } = useParams<{ slug?: string }>();
-  const { professionals, kecamatanList } = useDemoApp();
+  const { professionals, kecamatanList, loading, error, reloadDirectory } = useDemoApp();
   const [query, setQuery] = useState('');
   const [selectedKecamatan, setSelectedKecamatan] = useState('all');
 
@@ -221,10 +223,14 @@ export function ProfessionalsPage() {
       />
 
       <p className="text-xs text-slate-500 tabular-nums">
-        Menampilkan <strong>{filtered.length}</strong> profil disetujui (Data DEMO)
+        Menampilkan <strong>{filtered.length}</strong> profil disetujui
       </p>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <LoadingSkeleton count={2} />
+      ) : error ? (
+        <ErrorState message={error} onRetry={() => void reloadDirectory(false)} />
+      ) : filtered.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-600">
           Tidak ada profil profesional yang sesuai pencarian Anda.
         </div>
