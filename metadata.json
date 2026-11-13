@@ -1,0 +1,6 @@
+{
+  "name": "PASAR KITA ti GARUT",
+  "description": "Platform direktori usaha lokal, company profile, katalog produk dan jasa, serta profil profesional dan CV untuk masyarakat Kabupaten Garut.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
